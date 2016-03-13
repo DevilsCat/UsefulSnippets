@@ -20,14 +20,24 @@
 
 using namespace std;
 
-template<typename T>
+template<typename T, typename V>
 class ActiveObject{
 public:
+    struct RequestWrapper{
+        shared_ptr<promise<V>> p;
+        T value;
+        RequestWrapper(T &value_) :value(value_), p(make_shared<promise<V>>()){}
+    };
+
+
 
     ActiveObject() : activeFlag(false){}
 
-    void Enqueue(T &request){
-        requestQueue.push(request);
+    future<V> Enqueue(T& request){
+        RequestWrapper requestWrapper(request);
+        future<V> res = requestWrapper.p->get_future();
+        requestQueue.push(requestWrapper);
+        return res;
     }
 
     void Activate(){
@@ -49,26 +59,26 @@ public:
     }
 
 protected:
-    virtual void Service(T& request) = 0;
+    virtual V Service(T& request) = 0;
 
 private:
     void RunService(){
         while (activeFlag){
-            //this_thread::sleep_for(chrono::milliseconds(2000));
-            shared_ptr<T> request = requestQueue.TryPop();
-            if (!request){
+            shared_ptr<RequestWrapper> requestWrapper = requestQueue.TryPop();
+            if (!requestWrapper){
                 this_thread::yield();
                 continue;
             }
             else{
-                Service(*request);
+                V res = Service(requestWrapper->value);
+                requestWrapper->p->set_value(res);
             }
         }
     }
 
 
     thread workerThread_;
-    ThreadSafeQueue<T> requestQueue;
+    ThreadSafeQueue<RequestWrapper> requestQueue;
     bool activeFlag;
 };
 
